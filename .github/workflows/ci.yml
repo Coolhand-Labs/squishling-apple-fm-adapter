@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Ruby ${{ matrix.ruby-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        ruby-version: ['3.3', '3.4', '4.0']
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Ruby ${{ matrix.ruby-version }}
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      # Offline: the Swift helper is stubbed, so no Mac or Apple Intelligence is needed here (the macOS job below
+      # compiles the real helper). The live test against the real model is examples/ and runs during /prep-release.
+      - name: Run RSpec tests
+        run: bundle exec rspec --format documentation
+
+      - name: Ensure minimum coverage
+        if: matrix.ruby-version == '3.4'
+        run: |
+          coverage=$(jq '.result.line' coverage/.last_run.json)
+          if (( $(echo "$coverage < 90" | bc -l) )); then
+            echo "Coverage $coverage% is below 90% threshold"
+            exit 1
+          fi
+          echo "Coverage: $coverage%"
+
+      - name: Upload coverage report
+        if: matrix.ruby-version == '3.4'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  lint:
+    name: Lint (RuboCop)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Run RuboCop
+        run: bundle exec rubocop --parallel
+
+      - name: Audit dependencies for known vulnerabilities
+        run: bundle exec bundler-audit check --update
+
+  exhale:
+    name: Exhale (duplication + complexity)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # exhale needs full history for merge-base and blame lookups
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      # Every run sweeps the whole codebase and main passes the same gate; --base only labels
+      # findings as introduced or already there.
+      - name: Exhale duplication check
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          set -o pipefail
+          bin/exhale dry --include-tests --base "origin/$BASE_REF" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Exhale complexity check
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          set -o pipefail
+          bin/exhale complexity --base "origin/$BASE_REF" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Whole-codebase profile: every unit with its complexity score, for inspection.
+      - name: Profile the whole codebase
+        if: ${{ !cancelled() }}
+        run: bin/exhale complexity --format json > exhale-profile.json
+
+      - name: Upload exhale profile
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exhale-profile
+          path: exhale-profile.json
+          retention-days: 7
+
+  build:
+    name: Build Gem
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Build gem
+        run: gem build squishling-apple_fm.gemspec
+
+      - name: Verify gem was created
+        run: ls -la *.gem
+
+      # The gem is useless without the Swift source it compiles on first use.
+      - name: Verify the Swift helper ships in the gem
+        run: gem spec squishling-apple_fm-*.gem files | grep -q 'lib/squishling/apple_fm/helper.swift'
+
+  swift:
+    name: Swift helper (macOS)
+    runs-on: macos-26
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Run RSpec tests
+        run: bundle exec rspec --format documentation
+
+      - name: Compile the helper
+        run: swiftc -O lib/squishling/apple_fm/helper.swift -o "$RUNNER_TEMP/apple_fm_helper"
+
+      # GitHub's macOS runners are VMs without Apple Intelligence, so the model is normally unavailable here. The
+      # helper must still answer a well-formed request with exactly one JSON object: content, or an error code.
+      - name: Speak the helper protocol
+        shell: bash
+        run: |
+          request='{"messages":[{"role":"user","content":"hi"}],"schema":{"type":"object","title":"R","properties":{"a":{"type":"string"}},"required":["a"],"additionalProperties":false,"x-order":["a"]}}'
+          answer=$(echo "$request" | "$RUNNER_TEMP/apple_fm_helper")
+          echo "$answer"
+          echo "$answer" | ruby -rjson -e 'a = JSON.parse($stdin.read); abort("unexpected answer") unless a["content"].is_a?(String) || a["error"].is_a?(String)'
+          malformed=$(echo '{}' | "$RUNNER_TEMP/apple_fm_helper")
+          echo "$malformed"
+          [ "$malformed" = '{"error":"bad_request"}' ]

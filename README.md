@@ -35,7 +35,7 @@ SentimentClassifier.call(review: "Loved it, would buy again!")
 - Xcode or its Command Line Tools (`xcode-select --install`). Apple's FoundationModels framework is Swift-only, so the
   gem bundles a small Swift program and compiles it with your `swiftc` the first time it is needed (a few seconds). The
   binary is cached under `~/Library/Caches/squishling/apple_fm`, so later calls start in under a second.
-- Ruby 3.3+ and a Squishling release with pluggable adapters.
+- Ruby 3.3+ and Squishling 0.5 or later.
 
 It adds no other gem, runs no server, and makes no network request.
 
@@ -59,8 +59,9 @@ other params raise `Squishling::ConfigurationError`.
 This is a small on-device model, for **developing** the shape of a call, not for judging its quality:
 
 - The **context window is 4096 tokens** for the prompt, schema, and answer together; a call that doesn't fit is an `LLMError`.
-- It **leans toward `null` for `optional` fields**, even when the input has the value. Make a field required, with `[]`
-  or `""` for "none", when it matters.
+- An **optional nested object** (`optional { object { ... } }`) often comes back `null` even when the input has the
+  value; in testing, an optional scalar was filled in reliably. Make the object required, with `[]` or `""` for "none"
+  in its fields, when it matters.
 - It picks between choices less reliably than a hosted model.
 
 ## Documentation
@@ -78,7 +79,8 @@ bundle install
 bundle exec rake                              # RSpec (offline: the Swift helper is stubbed) + RuboCop
 bin/exhale dry --include-tests                # duplication gate
 bin/exhale complexity                         # complexity gate
-bundle exec ruby examples/apple_fm_example.rb # live, on a Mac with Apple Intelligence
+bundle exec ruby examples/quickstart.rb       # live smoke test, on a Mac with Apple Intelligence
+bundle exec ruby examples/apple_fm_example.rb # the full live suite, same requirements
 ```
 
 See [AGENTS.md](AGENTS.md) for the design invariants and the release process.

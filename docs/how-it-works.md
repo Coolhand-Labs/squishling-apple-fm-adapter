@@ -19,7 +19,7 @@ small Swift program, `lib/squishling/apple_fm/helper.swift`.
   is no server, no shared state, and Squishling's concurrent samples each get their own process (about 0.8 seconds per
   call once built, mostly model time).
 - **Private protocol.** The request is `{ instructions, messages, schema, temperature?, max_tokens? }`; the answer is
-  `{ content, usage? }` or `{ error: <code> }`. Apple's own error messages never leave the helper, only a code.
+  `{ content, usage?, finish_reason? }` or `{ error: <code> }`. Apple's own error messages never leave the helper, only a code.
 - **Token counts** (`usage`) come from FoundationModels on macOS 26.4 and later; on 26.0 to 26.3 there are none.
 - `helper:` runs a prebuilt binary instead, for example one built in CI or by your own tooling.
 
@@ -49,6 +49,7 @@ against your full schema anyway**, so a value that breaks a `pattern` is still r
 | `swiftc` missing, the compile fails, or the cache isn't writable | `ConfigurationError` | the message gives the command to run |
 | A schema the model can't generate | `ConfigurationError` | |
 | A param other than `temperature` / `max_output_tokens` | `ConfigurationError` | |
+| A reply cut off by `max_output_tokens` | invalid output (retried) | the framework only reports a decoding failure, so any decoding failure with a limit set is treated as a cutoff; the answer is empty and `finish_reason` is `:max_tokens`, so Squishling says it was a cutoff. Raise the limit or ask for less |
 | Prompt, schema, and answer over 4096 tokens | `LLMError` | depends on the input, so a retry or fallback may help |
 | Apple's guardrails decline, a rate limit, the model still downloading, an unsupported language | `LLMError` | |
 | The helper crashes, answers with garbage, or takes longer than `timeout` | `LLMError` | a timed-out helper is killed |
@@ -62,8 +63,12 @@ It is a small on-device model, so it is for developing the shape of a call:
 
 - **4096-token context window**, shared by the instructions, the conversation (a retry replays the rejected answer), the
   schema, and the answer.
-- **It leans toward `null`.** For `optional` fields it often answers `null` even when the input has the value; reordering
-  the union or describing the field doesn't change that. Make a field required, with `[]` or `""` for "none", if it matters.
+- **An optional nested object comes back `null`.** Given a note that says "Heart rate 88", `optional :vitals { object {
+  integer :heart_rate } }` was `null` in 10 of 10 runs, while the same field required returned 88 in 10 of 10, and a
+  flat `optional(:heart_rate) { integer }` returned 88 in 10 of 10. The schema sent is the expected
+  `anyOf: [object, null]`, so whether this is the model's preference for the `null` branch or something in how the
+  union is written is not established; an earlier note that reordering the union or describing the field doesn't help
+  has not been re-checked. Make the object required, with `[]` or `""` for "none" in its fields, if it matters.
 - **It chooses less reliably** than a hosted model between enum values, so a classification can differ from production's.
 
 ## Troubleshooting

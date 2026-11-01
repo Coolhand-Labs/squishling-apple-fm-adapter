@@ -48,7 +48,7 @@ module Squishling
         answer = @helper.call(payload(request), timeout: @timeout)
         if answer["content"].is_a?(String)
           return Squishling::Adapter::Response.new(content: answer["content"], model: MODEL,
-            tokens: tokens_of(answer["usage"]))
+            tokens: tokens_of(answer["usage"]), finish_reason: finish_reason_of(answer))
         end
 
         raise failure(request, answer["error"].to_s)
@@ -87,6 +87,11 @@ module Squishling
         return {} unless usage.is_a?(Hash)
 
         usage.slice(*TOKEN_KEYS).select { |_, count| count.is_a?(Integer) }.transform_keys(&:to_sym)
+      end
+
+      # The helper reports only a reply that max_output_tokens cut off; it has no other reason to give.
+      def finish_reason_of(answer)
+        :max_tokens if answer["finish_reason"] == "max_tokens"
       end
 
       def failure(request, code)

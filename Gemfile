@@ -5,10 +5,6 @@ source "https://rubygems.org"
 # Specify your gem's dependencies in squishling-apple_fm.gemspec
 gemspec
 
-# Squishling's pluggable adapters (#47) aren't in a release yet, so develop against main. Drop this line once a
-# Squishling release has them, and raise the gemspec's squishling requirement to that release.
-gem "squishling", github: "Coolhand-Labs/squishling", branch: "main"
-
 group :development, :test do
   gem "bundler-audit", "~> 0.9", require: false
   gem "exhale", "~> 0.2", require: false

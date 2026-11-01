@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
+### Added
+
+- `ignore_unsupported_params:` option (default `false`). A Squishling class written for a hosted model often pins
+  params the on-device model has no equivalent for, such as `thinking:` or a provider's `generationConfig`, and the
+  adapter raised `ConfigurationError` for them. Set `ignore_unsupported_params: true` to drop everything except
+  `temperature` and `max_output_tokens` instead (`thinking` is dropped whatever its value); those two are still
+  validated. Nothing changes unless you set it. The error for an unsupported param now also points at the option.
+  (#11)
+
 ## [0.1.1] - 2026-11-01
 
 ### Fixed

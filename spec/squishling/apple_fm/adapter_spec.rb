@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "fileutils"
+require "timeout"
 require "tmpdir"
 
 RSpec.describe Squishling::AppleFM::Adapter do
@@ -12,16 +14,36 @@ RSpec.describe Squishling::AppleFM::Adapter do
 
   # An executable that records what it is sent and prints a canned answer, standing in for the compiled Swift helper.
   def stub_helper(answer = nil, raw: nil, status: 0, sleep_for: 0, name: "helper")
-    path = File.join(dir, name)
-    File.write(path, <<~RUBY)
-      #!#{RbConfig.ruby}
+    script_helper(<<~RUBY, name:)
       File.write(#{record.inspect}, $stdin.read)
       sleep #{sleep_for}
       print #{(raw || JSON.generate(answer)).inspect}
       exit #{status}
     RUBY
+  end
+
+  # An executable Ruby script with the given body.
+  def script_helper(body, name: "helper")
+    path = File.join(dir, name)
+    File.write(path, "#!#{RbConfig.ruby}\n#{body}")
     FileUtils.chmod(0o755, path)
     path
+  end
+
+  # Both the request and what the helper writes are far bigger than a pipe buffer (about 64 KB).
+  def oversized_request
+    adapter_request(messages: [{ role: :user, content: "a" * 300_000 }])
+  end
+
+  # The call ends in the expected LLMError well inside the 10s Timeout guard, so a regression fails instead of hanging.
+  def expect_call_to_fail(helper, message, timeout: 0.5, request: oversized_request)
+    adapter = described_class.new(helper:, timeout:)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    Timeout.timeout(10) do
+      expect { adapter.complete(request) }.to raise_error(Squishling::LLMError, message)
+    end
+    expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 3
   end
 
   def sent
@@ -115,6 +137,39 @@ RSpec.describe Squishling::AppleFM::Adapter do
       expect(sent.keys).not_to include("temperature", "max_tokens")
     end
 
+    it "sends a BigDecimal or Rational temperature as a JSON number, which the helper would ignore as a string" do
+      adapter.complete(adapter_request(params: { temperature: BigDecimal("0.5") }))
+      expect(sent).to include("temperature" => 0.5)
+
+      adapter.complete(adapter_request(params: { temperature: Rational(1, 2) }))
+      expect(sent).to include("temperature" => 0.5)
+    end
+
+    it "accepts a temperature of 0 or a whole number, and ignores params set to nil" do
+      adapter.complete(adapter_request(params: { temperature: 0 }))
+      expect(sent).to include("temperature" => 0)
+
+      adapter.complete(adapter_request(params: { temperature: 1 }))
+      expect(sent).to include("temperature" => 1)
+
+      adapter.complete(adapter_request(params: { temperature: nil, max_output_tokens: nil }))
+      expect(sent.keys).not_to include("temperature", "max_tokens")
+    end
+
+    {
+      temperature: [[-0.1, Float::NAN, Float::INFINITY, 10**400, BigDecimal("1e400"), "0.5", true, Complex(1, 1)],
+                    "a finite number of 0 or more"],
+      max_output_tokens: [[0, -5, 1.5, "100", true, false, 2**63], "a positive Integer that fits in 64 bits"]
+    }.each do |name, (values, expected)|
+      values.each do |value|
+        it "raises ConfigurationError, naming only the param, for #{name}: #{value.inspect[0, 24]}" do
+          expect { adapter.complete(adapter_request(params: { name => value })) }
+            .to raise_error(Squishling::ConfigurationError, "Klass#call: the #{name} param must be #{expected}")
+          expect(File.exist?(record)).to be(false)
+        end
+      end
+    end
+
     it "reports a reply the output cap cut off as :max_tokens, so Squishling can tell a cutoff from a wrong answer" do
       adapter = described_class.new(helper: stub_helper({ content: "", finish_reason: "max_tokens" }))
 
@@ -174,6 +229,13 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
           expect { adapter.complete(adapter_request(params:)) }.not_to raise_error
           expect(sent.keys).to contain_exactly("instructions", "messages", "schema", "temperature", "max_tokens")
           expect(sent).to include("temperature" => 0.2, "max_tokens" => 300)
+        end
+      end
+
+      it "still validates temperature and max_output_tokens, which it does send" do
+        [{ temperature: -1 }, { max_output_tokens: 0 }].each do |params|
+          expect { adapter.complete(adapter_request(params: { top_p: 0.5, **params })) }
+            .to raise_error(Squishling::ConfigurationError, /param must be/)
         end
       end
     end
@@ -242,6 +304,37 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
 
         expect { adapter.complete(adapter_request) }.to raise_error(Squishling::LLMError, /took longer than 0.3s/)
         expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 3
+      end
+
+      it "times out, not hangs, when the helper never reads a request bigger than the pipe buffer" do
+        expect_call_to_fail(script_helper("sleep 30"), /took longer than 0.5s/)
+      end
+
+      it "times out, not hangs, when the helper fills its stdout before it reads all of stdin" do
+        helper = script_helper(<<~RUBY)
+          $stdout.write("x" * 300_000)
+          $stdout.flush
+          $stdin.read
+          sleep 30
+        RUBY
+
+        expect_call_to_fail(helper, /took longer than 0.5s/)
+      end
+
+      it "raises LLMError, not hangs, when the helper exits without reading a request bigger than the pipe buffer" do
+        expect_call_to_fail(script_helper("exit 3"), /no answer \(exit 3\)/, timeout: 5)
+      end
+
+      it "times out, not hangs, when the helper answers and closes stdout but doesn't exit" do
+        helper = script_helper(<<~RUBY)
+          $stdin.read
+          print #{JSON.generate({ content: '{}' }).inspect}
+          $stdout.flush
+          $stdout.reopen(File::NULL, "w") # IO#close leaves fds 0-2 open, so the pipe would stay open
+          sleep 30
+        RUBY
+
+        expect_call_to_fail(helper, /took longer than 0.5s/, request: adapter_request)
       end
 
       it "still raises LLMError when the helper exits on its own just before it is killed" do

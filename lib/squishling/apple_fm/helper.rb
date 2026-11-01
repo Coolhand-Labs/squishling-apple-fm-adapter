@@ -33,12 +33,13 @@ module Squishling
       # Sends request (a Hash) and returns the helper's answer (a Hash). Raises Unavailable or Failed.
       def call(request, timeout:)
         command = executable
+        payload = JSON.generate(request) # before any process or thread exists, so a failure leaves nothing behind
         # [command, command] is the program and its argv[0], run as given: a bare String with a space or a shell
         # metacharacter in it (a home directory like "/Users/Mary Ann") would be split or handed to /bin/sh.
         Open3.popen2([command, command], err: File::NULL) do |stdin, stdout, wait|
-          send_request(stdin, request)
-          reader = Thread.new { stdout.read }
-          timed_out = reader.join(timeout).nil?
+          reader = quiet_thread { stdout.read }
+          writer = quiet_thread { send_request(stdin, payload) }
+          timed_out = !finished_within?([writer, reader, wait], timeout)
           kill(wait.pid) if timed_out
           answer(timed_out ? nil : reader.value, wait.value, timeout)
         end
@@ -48,6 +49,25 @@ module Squishling
 
       private
 
+      # The reader starts before the write, and the write runs in a thread of its own: a helper that fills its stdout
+      # before it has read all of stdin, or never reads stdin, can't block the call past the timeout. A thread that
+      # fails when the pipes are closed under it (the timeout path) reports nothing.
+      def quiet_thread
+        Thread.new do
+          Thread.current.report_on_exception = false
+          yield
+        end
+      end
+
+      # True when every thread finished within timeout seconds in all; the write, the read, and the helper's exit share
+      # that one budget, so a helper that answers and then doesn't exit can't hang the call either.
+      def finished_within?(threads, timeout)
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+        threads.all? do |thread|
+          thread.join([deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0].max)
+        end
+      end
+
       # The helper may exit on its own between the timeout and the kill.
       def kill(pid)
         Process.kill("KILL", pid)
@@ -55,8 +75,8 @@ module Squishling
         nil
       end
 
-      def send_request(stdin, request)
-        stdin.write(JSON.generate(request))
+      def send_request(stdin, payload)
+        stdin.write(payload)
       rescue Errno::EPIPE
         nil # the helper already exited; its status explains why
       ensure

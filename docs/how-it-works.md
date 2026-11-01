@@ -52,6 +52,7 @@ against your full schema anyway**, so a value that breaks a `pattern` is still r
 | `swiftc` missing, the compile fails, or the cache isn't writable | `ConfigurationError` | the message gives the command to run |
 | A schema the model can't generate | `ConfigurationError` | |
 | A param other than `temperature` / `max_output_tokens` | `ConfigurationError` | the message names the param, never its value; with `ignore_unsupported_params: true` it is dropped instead |
+| A `temperature` that isn't a finite number of 0 or more, or a `max_output_tokens` that isn't a positive Integer that fits in 64 bits | `ConfigurationError` | the message names the param, never the value |
 | A reply cut off by `max_output_tokens` | invalid output (retried) | the framework only reports a decoding failure, so any decoding failure with a limit set is treated as a cutoff; the answer is empty and `finish_reason` is `:max_tokens`, so Squishling says it was a cutoff. Raise the limit or ask for less |
 | Prompt, schema, and answer over 4096 tokens | `LLMError` | depends on the input, so a retry or fallback may help |
 | Apple's guardrails decline, a rate limit, the model still downloading, an unsupported language | `LLMError` | |
@@ -65,7 +66,7 @@ appear in an error or log.
 A class written for a hosted model often pins params the on-device model has no equivalent for, such as
 `thinking: { budget: 4096 }` or a provider's `generationConfig`. Set `ignore_unsupported_params: true` to run it here
 unchanged: everything except `temperature` and `max_output_tokens` is dropped without a message, and `thinking` is
-dropped whatever its value. It is off by default, so a param that does nothing still fails loudly. A value that isn't
+dropped whatever its value. `temperature` and `max_output_tokens` are still checked, since they are sent. It is off by default, so a param that does nothing still fails loudly. A value that isn't
 `true` or `false` is a `ConfigurationError`.
 
 ## Limits of the model

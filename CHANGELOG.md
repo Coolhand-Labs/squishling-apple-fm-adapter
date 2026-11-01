@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-01
+
+### Fixed
+
+- `timeout:` now covers writing the request to a custom `helper:` too. Before, a helper that filled its output before
+  reading its input (or never read it) hung forever on a request bigger than the pipe buffer (about 64 KB); the call now
+  fails with an `LLMError` once `timeout:` has passed, as it does for a helper that never answers. The bundled helper
+  was not affected. (#10)
+- A `temperature` that isn't a finite number of 0 or more, or a `max_output_tokens` that isn't a positive Integer
+  (it must fit in 64 bits), now raises a `ConfigurationError` that names the param and never its value. Before, a
+  `max_output_tokens` of 0 or less was reported as an output cutoff (and retried as invalid output), and a negative
+  temperature was silently accepted. Valid values are unaffected; a `BigDecimal` or `Rational` temperature is now sent
+  as a number instead of being dropped. (#9)
+
 ## [0.1.0] - 2026-11-01
 
 First release.

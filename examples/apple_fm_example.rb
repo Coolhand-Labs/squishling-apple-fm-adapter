@@ -179,6 +179,19 @@ SCENARIOS = [
     end
     raise "expected ConfigurationError, got #{result.to_h.inspect}"
   }),
+  Scenario.new("a max_output_tokens of 0 or less is a ConfigurationError, never a reported cutoff", lambda {
+    [0, -5].each do |limit|
+      klass = Class.new(Fixtures::Reviewer) { squishling params: { max_output_tokens: limit } }
+      begin
+        result = klass.call(review: REVIEW)
+      rescue Squishling::ConfigurationError => e
+        check(e.message.include?("max_output_tokens param must be"), "unexpected message: #{e.message}")
+        next
+      end
+      raise "expected ConfigurationError for #{limit}, got #{result.to_h.inspect}"
+    end
+    "rejected max_output_tokens 0 and -5"
+  }),
   Scenario.new("Squishling.verify! accepts the squished classes with the adapter configured", lambda {
     report = Squishling.verify!(Fixtures::Reviewer, Fixtures::InvoiceReader, Fixtures::RawNullable,
       Fixtures::CheckedColor, Fixtures::Fallback)

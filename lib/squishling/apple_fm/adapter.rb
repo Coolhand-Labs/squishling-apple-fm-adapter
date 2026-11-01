@@ -17,6 +17,8 @@ module Squishling
       MODEL = "apple-foundation-model"
       PORTABLE_PARAMS = %i[temperature max_output_tokens].freeze
       TOKEN_KEYS = %w[input_tokens output_tokens].freeze
+      # The helper reads max_tokens as a Swift Int and ignores anything bigger.
+      MAX_INT = (2**63) - 1
       # The helper's error codes. A setup mistake is never retried; the rest depend on the input or the moment, so
       # another attempt may work. Only these texts are used: the system's own message is never repeated.
       SETUP_FAILURES = {
@@ -32,7 +34,7 @@ module Squishling
         "rate_limited" => "the system rate-limited the request",
         "model_not_ready" => "the on-device model isn't ready yet (it may still be downloading)"
       }.freeze
-      private_constant :PORTABLE_PARAMS, :TOKEN_KEYS, :SETUP_FAILURES, :FAILURES
+      private_constant :PORTABLE_PARAMS, :TOKEN_KEYS, :MAX_INT, :SETUP_FAILURES, :FAILURES
 
       # timeout: seconds to wait for an answer before giving up (an LLMError). helper: the path of a prebuilt helper
       # to run instead of compiling the bundled one. cache_dir: where compiled helpers are kept (default
@@ -79,7 +81,24 @@ module Squishling
                                              "params, not #{unsupported.join(', ')}")
         end
 
-        { "temperature" => params[:temperature], "max_tokens" => params[:max_output_tokens] }.compact
+        check_param(request, params, :temperature, "a finite number of 0 or more") do |value|
+          value.is_a?(Numeric) && value.real? && value.to_f.finite? && !value.negative?
+        end
+        check_param(request, params, :max_output_tokens, "a positive Integer that fits in 64 bits") do |value|
+          value.is_a?(Integer) && value.between?(1, MAX_INT)
+        end
+
+        # to_f: a BigDecimal or Rational would reach the helper as a JSON string, which it ignores.
+        { "temperature" => params[:temperature]&.to_f, "max_tokens" => params[:max_output_tokens] }.compact
+      end
+
+      # An unset (nil) param is left out; a set one that fails the block is a setup mistake. The message names the
+      # param and the shape it needs, never the value.
+      def check_param(request, params, name, expected)
+        value = params[name]
+        return if value.nil? || yield(value)
+
+        raise configuration_error(request, "the #{name} param must be #{expected}")
       end
 
       # The helper counts tokens on macOS 26.4 and later; before that it sends none.

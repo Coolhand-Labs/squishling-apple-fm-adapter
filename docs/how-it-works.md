@@ -66,8 +66,8 @@ appear in an error or log.
 A class written for a hosted model often pins params the on-device model has no equivalent for, such as
 `thinking: { budget: 4096 }` or a provider's `generationConfig`. Set `ignore_unsupported_params: true` to run it here
 unchanged: everything except `temperature` and `max_output_tokens` is dropped without a message, and `thinking` is
-dropped whatever its value. `temperature` and `max_output_tokens` are still checked, since they are sent. It is off by default, so a param that does nothing still fails loudly. A value that isn't
-`true` or `false` is a `ConfigurationError`.
+dropped whatever its value. Those two are still checked, since they are sent. It is off by default, so a param that
+does nothing still fails loudly. A value that isn't `true` or `false` is a `ConfigurationError`.
 
 ## Limits of the model
 

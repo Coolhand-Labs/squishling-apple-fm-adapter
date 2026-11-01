@@ -106,7 +106,9 @@ rewritten from the final, user-approved set of merged PRs anyway. Leave `CHANGEL
 in your PR.
 
 Releases publish to RubyGems via Trusted Publishing when a `vX.Y.Z` tag is pushed (`.github/workflows/publish.yml`).
-Agents never create or push tags, run `rake release`, or `gem push`.
+Agents never create or push tags, run `rake release`, or `gem push`. The one exception: `/finish-release`, invoked
+by the user, is the sanctioned path for merging the release PR and pushing the release tag (it still never runs
+`rake release` or `gem push`).
 
 ## Commits and PRs
 
@@ -132,3 +134,6 @@ gemspec description, so searches for "Ruby Apple Intelligence", "Ruby on-device 
   asked. Report its result (clean or the remaining findings) along with the work.
 - `/prep-release` (`.claude/skills/prep-release/SKILL.md`) — the release event: PR triage, merges,
   changelog/version, security red-team, the live example on a Mac, release-prep PR.
+- `/finish-release` (`.claude/skills/finish-release/SKILL.md`) — after you've reviewed the release-prep PR:
+  squash-merges it, pushes the annotated `vX.Y.Z` tag (which triggers the Publish workflow), and publishes the
+  GitHub release notes. Invoking it is the authorization to merge, tag, and publish.

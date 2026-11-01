@@ -8,8 +8,11 @@
 # samples, error mapping), not how well a small model answers, so they assert on shapes and types rather than on exact
 # answers. Run: bundle exec ruby examples/apple_fm_example.rb
 # Exits 0 when every scenario passes, 1 otherwise (including on a Mac that can't run Apple Intelligence).
+# examples/quickstart.rb is the five-line version, for checking that a fresh install works.
 
 require "bundler/setup"
+require "fileutils"
+require "tmpdir"
 require "squishling/apple_fm"
 
 Squishling.configure do |config|
@@ -88,6 +91,17 @@ module Fixtures
   end
 end
 
+# An adapter-level request for the scenarios that call the adapter without Squishling: one string field, "word".
+def word_request
+  schema = { "type" => "object", "properties" => { "word" => { "type" => "string" } }, "required" => ["word"],
+             "additionalProperties" => false }
+  Squishling::Adapter::Request.new(
+    label: "Example#call", model: nil, provider: nil, instructions: "Reply with one word.",
+    messages: [{ role: :user, content: "hi" }], params: {},
+    schema: { "name" => "Word", "strict" => true, "schema" => schema }
+  )
+end
+
 REVIEW = "Absolutely love it. Best purchase I've made all year."
 INVOICE = "Invoice #INV-2041\n3 x Widget @ $10.00\n2 x Gadget @ $25.00\nTOTAL DUE: $80.00"
 
@@ -164,6 +178,70 @@ SCENARIOS = [
       next "rejected top_p"
     end
     raise "expected ConfigurationError, got #{result.to_h.inspect}"
+  }),
+  Scenario.new("Squishling.verify! accepts the squished classes with the adapter configured", lambda {
+    report = Squishling.verify!(Fixtures::Reviewer, Fixtures::InvoiceReader, Fixtures::RawNullable,
+      Fixtures::CheckedColor, Fixtures::Fallback)
+    check(report.ok?, "verification failed: #{report}")
+    "#{report.size} problems"
+  }),
+  Scenario.new("adapter options come from a Hash, and a bad option fails at setup", lambda {
+    begin
+      Squishling.configure { |config| config.adapter = { type: :apple_fm, timeout: 60 } }
+      check(Fixtures::Reviewer.call(review: REVIEW).squished?, "expected an LLM result with timeout: 60")
+      {
+        { type: :apple_fm, timeout: -1 } => "must be a positive number",
+        { type: :apple_fm, bogus: 1 } => "doesn't take bogus"
+      }.each do |options, message|
+        error = begin
+          Squishling.configure { |config| config.adapter = options }
+          nil
+        rescue Squishling::ConfigurationError => e
+          e
+        end
+        check(error&.message&.include?(message), "#{options.inspect} gave #{error.inspect}")
+      end
+    ensure
+      Squishling.configure { |config| config.adapter = :apple_fm }
+    end
+    "timeout: 60 ran; timeout: -1 and an unknown option were rejected"
+  }),
+  Scenario.new("max_output_tokens that cuts a reply short is reported as a cutoff, not a wrong answer", lambda {
+    klass = Class.new(Fixtures::Reviewer) { squishling params: { max_output_tokens: 5 } }
+    begin
+      klass.call(review: REVIEW)
+    rescue Squishling::InvalidOutputError => e
+      check(e.truncated?, "expected truncated?, got finish_reason #{e.finish_reason.inspect}")
+      next "InvalidOutputError#truncated? (#{e.finish_reason.inspect})"
+    end
+    raise "expected an InvalidOutputError"
+  }),
+  Scenario.new("non-ASCII text goes in and comes out as valid UTF-8", lambda {
+    result = Fixtures::Reviewer.call(review: "とても良い。素晴らしい購入でした。Très bien, merci !")
+    check(result.sentiment.encoding == Encoding::UTF_8 && result.sentiment.valid_encoding?, "bad encoding")
+    check(%w[positive negative neutral].include?(result.sentiment), "sentiment was #{result.sentiment.inspect}")
+    "#{result.sentiment} #{result.score}"
+  }),
+  Scenario.new("the compiled helper is cached: a second adapter on the same cache_dir doesn't rebuild", lambda {
+    request = word_request
+    Dir.mktmpdir("apple_fm_example") do |dir|
+      Squishling::AppleFM::Adapter.new(cache_dir: dir).complete(request)
+      binary = Dir.glob(File.join(dir, "**", "helper")).first
+      check(binary && File.executable?(binary), "no compiled helper under #{dir}")
+      built = File.mtime(binary)
+      Squishling::AppleFM::Adapter.new(cache_dir: dir).complete(request)
+      check(File.mtime(binary) == built, "the helper was rebuilt")
+    end
+    "one build, reused"
+  }),
+  Scenario.new("a helper: path that isn't there is a ConfigurationError", lambda {
+    adapter = Squishling::AppleFM::Adapter.new(helper: File.join(Dir.tmpdir, "no-such-apple-fm-helper"))
+    begin
+      adapter.complete(word_request)
+    rescue Squishling::ConfigurationError
+      next "rejected"
+    end
+    raise "expected ConfigurationError"
   })
 ].freeze
 

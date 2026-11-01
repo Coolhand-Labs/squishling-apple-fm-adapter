@@ -139,7 +139,7 @@ never on `main` directly.
    (`Squishling.register_adapter`), and the `Gemfile` must not point
    `squishling` at a git branch. `gem search -e squishling` / `gh release
    list -R Coolhand-Labs/squishling` show what is out. If the requirement is
-   still `>= 0.4.0` or the `Gemfile` still has the `github:` line, that is a
+   still lower than 0.5.0 or the `Gemfile` has a git source for `squishling` (it must never ship), that is a
    release blocker: report it, and if a suitable Squishling release exists,
    raise the requirement, drop the git source, and run `bundle install` as
    part of this branch. Never release against an unreleased Squishling.
@@ -300,6 +300,6 @@ findings.
   decoder and model — whether Apple accepts a schema shape, returns `null` for a
   nullable, or reports a context-window overflow the way the Ruby side expects
   is a different failure mode than a unit test can catch.
-- *"The gemspec says squishling >= 0.4.0, close enough."* Until that names a
-  released Squishling with pluggable adapters, the published gem would install
+- *"The gemspec's squishling requirement is close enough."* Until that names a
+  released Squishling with pluggable adapters (0.5.0 or later), the published gem would install
   and then fail to load. It is a blocker, not a nitpick.

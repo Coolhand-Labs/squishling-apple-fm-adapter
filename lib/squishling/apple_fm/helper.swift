@@ -4,7 +4,8 @@ import FoundationModels
 // Reads one JSON request on stdin, writes one JSON line on stdout. Exit status is 0 whenever a line was written.
 // Request:  {"instructions": String?, "messages": [{"role": "user"|"assistant", "content": String}],
 //            "schema": <JSON Schema decodable as GenerationSchema>, "temperature": Double?, "max_tokens": Int?}
-// Success:  {"content": String, "usage": {"input_tokens": Int, "output_tokens": Int}?}      Failure: {"error": <code>}, never the model's or the system's own message
+// Success:  {"content": String, "usage": {"input_tokens": Int, "output_tokens": Int}?, "finish_reason": "max_tokens"?}
+// Failure:  {"error": <code>}, never the model's or the system's own message
 
 func emit(_ object: [String: Any]) -> Never {
   let data = (try? JSONSerialization.data(withJSONObject: object, options: [])) ?? Data("{\"error\":\"other\"}".utf8)
@@ -53,6 +54,15 @@ func failure(_ error: Error) -> String {
   }
 }
 
+// With max_tokens set, a reply cut off at the limit is truncated JSON that the framework can't decode, and it reports
+// only a decoding failure, so any decoding failure with a limit set is treated as a cutoff. The partial text isn't
+// kept: the answer is empty and says why, so Squishling can tell a cutoff from a wrong answer.
+func isCutoff(_ error: Error, limit: Int?) -> Bool {
+  guard limit != nil, let generation = error as? LanguageModelSession.GenerationError else { return false }
+  if case .decodingFailure = generation { return true }
+  return false
+}
+
 let input = FileHandle.standardInput.readDataToEndOfFile()
 guard let request = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any],
       let messages = request["messages"] as? [[String: String]], let last = messages.last,
@@ -82,7 +92,8 @@ for message in messages.dropLast() {
 
 var options = GenerationOptions()
 if let temperature = request["temperature"] as? Double { options.temperature = temperature }
-if let limit = request["max_tokens"] as? Int { options.maximumResponseTokens = limit }
+let limit = request["max_tokens"] as? Int
+if let limit { options.maximumResponseTokens = limit }
 
 do {
   let session = LanguageModelSession(model: model, tools: [], transcript: Transcript(entries: entries))
@@ -91,4 +102,7 @@ do {
   let asked = entries + [.prompt(Transcript.Prompt(segments: segments(prompt)))]
   let counts = await usage(model, entries: asked, schema: schema, answer: response.content.jsonString)
   emit(["content": response.content.jsonString, "usage": counts])
-} catch { emit(["error": failure(error)]) }
+} catch {
+  if isCutoff(error, limit: limit) { emit(["content": "", "finish_reason": "max_tokens"]) }
+  emit(["error": failure(error)])
+}

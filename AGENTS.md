@@ -28,10 +28,10 @@ runner and checks its JSON protocol; run the same by hand with
 After the feature or fix is built and `rake` is green, run `/loop-review` until it comes back clean (see
 [Review and release skills](#review-and-release-skills)).
 
-The live test is `examples/apple_fm_example.rb`. It needs a Mac with macOS 26+ on Apple Silicon and Apple Intelligence
-turned on, so it can't run in CI; it runs during `/prep-release`. If you touch `helper.swift`, the schema translation,
-or the process handling, run it yourself first. Never delete an assertion, mark a spec pending, or rescue-and-swallow
-to get green.
+The live test is `examples/apple_fm_example.rb` (and `examples/quickstart.rb`, the short version). It needs a Mac
+with macOS 26+ on Apple Silicon and Apple Intelligence turned on, so it can't run in CI; it runs during
+`/prep-release`. If you touch `helper.swift`, the schema translation, or the process handling, run it yourself first.
+Never delete an assertion, mark a spec pending, or rescue-and-swallow to get green.
 
 ## Runtime dependencies
 
@@ -43,8 +43,8 @@ The gem's only runtime dependency is `squishling`. Keep it that way:
   download, vendor, or ship a prebuilt binary: the cache holds only what the user's own compiler built from the
   shipped source.
 - Development-only gems go in the `Gemfile`'s `:development, :test` group, never the gemspec.
-- The `Gemfile` points `squishling` at its `main` branch until a Squishling release has pluggable adapters; the gemspec
-  requirement must be raised to that release before this gem's first release (the `/prep-release` skill checks it).
+- Squishling comes from RubyGems, never a git source: the gemspec requires `>= 0.5.0`, the first release with pluggable
+  adapters (the `/prep-release` skill checks it). Raise it only when the adapter starts using something newer.
 - No Ruby-version-conditional gems in the `Gemfile`: the committed `Gemfile.lock` is installed in frozen
   mode on every Ruby in the CI matrix (3.3–4.0), so it must resolve identically everywhere.
 - `examples/`, `spec/`, `bin/`, and agent files are excluded from the packaged gem (see the gemspec). `helper.swift`
@@ -63,7 +63,10 @@ Squishling's (`Squishling::Adapter::Base`, see its AGENTS.md); these are what th
   (worth another attempt); any other exception propagates unwrapped. A setup mistake is a Mac that can't run Apple
   Intelligence or has it off, a missing or failing `swiftc`, an unwritable cache, an unusable helper path, a schema the
   model can't generate, or a param the adapter doesn't take. A context-window overflow, a guardrail refusal, a model
-  that is still downloading, a rate limit, a crash, and a timeout are `LLMError`s.
+  that is still downloading, a rate limit, a crash, and a timeout are `LLMError`s. A `max_output_tokens` cutoff is not
+  an error: it is a `Response` with empty content and `finish_reason: :max_tokens`, which Squishling treats as invalid
+  output (and says was a cutoff). The helper infers it, since the framework only reports a decoding failure: any
+  decoding failure with a limit set.
 - **Nothing from the system or the model in an error or log.** The Swift helper answers with a fixed error *code*, never
   Apple's own message; the Ruby side maps codes to its own texts, and an unknown code gets a generic one. Model output
   leaves only as the `Response` content. Don't echo the helper's stderr (it is discarded) or compiler output.
@@ -71,9 +74,10 @@ Squishling's (`Squishling::Adapter::Base`, see its AGENTS.md); these are what th
   process and no unsynchronized state. The build is guarded by a per-adapter mutex and a cross-process `flock`, and the
   binary is renamed into place, so nobody runs a half-written file.
 - **The helper speaks one protocol.** It reads one JSON request from stdin, writes exactly one JSON object line to
-  stdout (`{"content", "usage"}` or `{"error": <code>}`), and exits 0 whenever it wrote a line. Anything else is
-  treated as a crash (`LLMError`). The protocol is private to this gem, so Ruby and Swift change together. APIs newer
-  than macOS 26.0 (token counts need 26.4) sit behind `#available`.
+  stdout (`{"content", "usage", "finish_reason"}`, the last only `"max_tokens"` for a reply the output cap cut off, or
+  `{"error": <code>}`), and exits 0 whenever it wrote a line. Anything else is treated as a crash (`LLMError`). The
+  protocol is private to this gem, so Ruby and Swift change together. APIs newer than macOS 26.0 (token counts need
+  26.4) sit behind `#available`.
 - **Strict schemas in, Apple's dialect out.** `GenerationSchema` translates Squishling's strict schema into the dialect
   Apple's decoder reads (titles, `x-order`, explicit `additionalProperties`, `anyOf` with null for nullable, `$ref`
   inlined, `type: [..., "null"]` split). It keeps only the keywords the model can be guided by and never mutates its

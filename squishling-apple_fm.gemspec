@@ -38,8 +38,8 @@ Gem::Specification.new do |spec|
   end
   spec.require_paths = ["lib"]
 
-  # The first Squishling with pluggable adapters (Squishling.register_adapter). Raise this to that release's number.
-  spec.add_dependency "squishling", ">= 0.4.0"
+  # 0.5.0 is the first Squishling release with pluggable adapters (Squishling.register_adapter).
+  spec.add_dependency "squishling", ">= 0.5.0"
 
   spec.metadata["rubygems_mfa_required"] = "true"
 end

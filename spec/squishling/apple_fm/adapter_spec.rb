@@ -115,6 +115,21 @@ RSpec.describe Squishling::AppleFM::Adapter do
       expect(sent.keys).not_to include("temperature", "max_tokens")
     end
 
+    it "reports a reply the output cap cut off as :max_tokens, so Squishling can tell a cutoff from a wrong answer" do
+      adapter = described_class.new(helper: stub_helper({ content: "", finish_reason: "max_tokens" }))
+
+      response = adapter.complete(adapter_request(params: { max_output_tokens: 5 }))
+
+      expect(response).to have_attributes(content: "", finish_reason: :max_tokens, truncated?: true)
+    end
+
+    it "reports no finish reason for an ordinary answer, and drops one it doesn't know" do
+      expect(adapter.complete(adapter_request).finish_reason).to be_nil
+
+      odd = described_class.new(helper: stub_helper({ content: "{}", finish_reason: "Apple says: secret" }))
+      expect(odd.complete(adapter_request).finish_reason).to be_nil
+    end
+
     it "ignores the model name: the system has one model" do
       expect(adapter.complete(adapter_request(model: "anything")).model).to eq("apple-foundation-model")
       expect(adapter.complete(adapter_request(model: nil)).model).to eq("apple-foundation-model")
@@ -182,6 +197,12 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
 
           expect { adapter.complete(adapter_request) }.to raise_error(Squishling::LLMError, /helper/)
         end
+      end
+
+      it "ignores a finish reason on an error answer: the error code decides" do
+        adapter = described_class.new(helper: stub_helper({ error: "guardrail", finish_reason: "max_tokens" }))
+
+        expect { adapter.complete(adapter_request) }.to raise_error(Squishling::LLMError, /Apple's safety guardrails/)
       end
 
       it "raises LLMError when an answer has neither content nor an error" do

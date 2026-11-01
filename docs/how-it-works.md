@@ -52,6 +52,7 @@ against your full schema anyway**, so a value that breaks a `pattern` is still r
 | `swiftc` missing, the compile fails, or the cache isn't writable | `ConfigurationError` | the message gives the command to run |
 | A schema the model can't generate | `ConfigurationError` | |
 | A param other than `temperature` / `max_output_tokens` | `ConfigurationError` | |
+| A `temperature` that isn't a finite number of 0 or more, or a `max_output_tokens` that isn't a positive Integer that fits in 64 bits | `ConfigurationError` | the message names the param, never the value |
 | A reply cut off by `max_output_tokens` | invalid output (retried) | the framework only reports a decoding failure, so any decoding failure with a limit set is treated as a cutoff; the answer is empty and `finish_reason` is `:max_tokens`, so Squishling says it was a cutoff. Raise the limit or ask for less |
 | Prompt, schema, and answer over 4096 tokens | `LLMError` | depends on the input, so a retry or fallback may help |
 | Apple's guardrails decline, a rate limit, the model still downloading, an unsupported language | `LLMError` | |

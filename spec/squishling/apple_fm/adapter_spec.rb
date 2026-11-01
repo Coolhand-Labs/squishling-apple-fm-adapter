@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "fileutils"
 require "tmpdir"
 
@@ -113,6 +114,39 @@ RSpec.describe Squishling::AppleFM::Adapter do
 
       adapter.complete(adapter_request)
       expect(sent.keys).not_to include("temperature", "max_tokens")
+    end
+
+    it "sends a BigDecimal or Rational temperature as a JSON number, which the helper would ignore as a string" do
+      adapter.complete(adapter_request(params: { temperature: BigDecimal("0.5") }))
+      expect(sent).to include("temperature" => 0.5)
+
+      adapter.complete(adapter_request(params: { temperature: Rational(1, 2) }))
+      expect(sent).to include("temperature" => 0.5)
+    end
+
+    it "accepts a temperature of 0 or a whole number, and ignores params set to nil" do
+      adapter.complete(adapter_request(params: { temperature: 0 }))
+      expect(sent).to include("temperature" => 0)
+
+      adapter.complete(adapter_request(params: { temperature: 1 }))
+      expect(sent).to include("temperature" => 1)
+
+      adapter.complete(adapter_request(params: { temperature: nil, max_output_tokens: nil }))
+      expect(sent.keys).not_to include("temperature", "max_tokens")
+    end
+
+    {
+      temperature: [[-0.1, Float::NAN, Float::INFINITY, 10**400, BigDecimal("1e400"), "0.5", true, Complex(1, 1)],
+                    "a finite number of 0 or more"],
+      max_output_tokens: [[0, -5, 1.5, "100", true, false, 2**63], "a positive Integer that fits in 64 bits"]
+    }.each do |name, (values, expected)|
+      values.each do |value|
+        it "raises ConfigurationError, naming only the param, for #{name}: #{value.inspect[0, 24]}" do
+          expect { adapter.complete(adapter_request(params: { name => value })) }
+            .to raise_error(Squishling::ConfigurationError, "Klass#call: the #{name} param must be #{expected}")
+          expect(File.exist?(record)).to be(false)
+        end
+      end
     end
 
     it "reports a reply the output cap cut off as :max_tokens, so Squishling can tell a cutoff from a wrong answer" do

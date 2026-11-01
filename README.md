@@ -52,7 +52,8 @@ config.adapter = { type: :apple_fm, timeout: 60 }
 | `cache_dir` | `~/Library/Caches/squishling/apple_fm` (or under `$XDG_CACHE_HOME`) | Where compiled helpers are kept. |
 
 The system has one model, so `model:` and `provider:` are ignored. `temperature` and `max_output_tokens` are sent;
-other params raise `Squishling::ConfigurationError`.
+a temperature that isn't a finite number of 0 or more, a `max_output_tokens` that isn't a positive Integer, or any
+other param raises `Squishling::ConfigurationError`.
 
 ## Know the limits
 

@@ -84,7 +84,9 @@ Squishling's (`Squishling::Adapter::Base`, see its AGENTS.md); these are what th
   input. What it drops (`pattern`, `minLength`, `format`, `const`, ...) is still enforced by Squishling's own
   validation, which is the guarantee: the model's compliance is never trusted.
 - **Params.** Only `temperature` and `max_output_tokens` are sent; `thinking` (anything but `false`) and every other
-  param raise `ConfigurationError`. `model:` and `provider:` are ignored: the system has one model.
+  param raise `ConfigurationError` (names only, never values). The opt-in `ignore_unsupported_params: true` (default
+  `false`) drops them instead, so a class written for a hosted model runs unchanged. `model:` and `provider:` are
+  ignored: the system has one model.
 - **Platform honesty.** Off macOS the adapter raises `ConfigurationError` when it would have to build; it never pretends.
   Requiring the gem on a Squishling without `register_adapter` raises `LoadError` with the fix.
 

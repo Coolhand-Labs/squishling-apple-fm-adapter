@@ -153,6 +153,31 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
       end
     end
 
+    it "names an unsupported param in the error, never its value" do
+      expect { adapter.complete(adapter_request(params: { top_p: 0.987, thinking: { budget: 4321 } })) }
+        .to raise_error(Squishling::ConfigurationError) { |error|
+          expect(error.message).to include("top_p, thinking")
+          expect(error.message).not_to match(/0\.987|4321/)
+        }
+    end
+
+    describe "with ignore_unsupported_params" do
+      let(:adapter) do
+        described_class.new(helper: stub_helper({ content: '{"label":"ok"}' }), ignore_unsupported_params: true)
+      end
+
+      it "drops every param but temperature and max_output_tokens, whatever the value of thinking" do
+        [{ budget: 4096 }, { budget: -1 }, { effort: :low }, true, false].each do |thinking|
+          params = { temperature: 0.2, max_output_tokens: 300, thinking:, top_p: 0.5,
+                     generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }
+
+          expect { adapter.complete(adapter_request(params:)) }.not_to raise_error
+          expect(sent.keys).to contain_exactly("instructions", "messages", "schema", "temperature", "max_tokens")
+          expect(sent).to include("temperature" => 0.2, "max_tokens" => 300)
+        end
+      end
+    end
+
     describe "when the helper reports an error" do
       def failing(code, **extra)
         described_class.new(helper: stub_helper({ error: code, message: "SECRET model text", **extra }))
@@ -260,6 +285,29 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
         expect { described_class.new(timeout:) }
           .to raise_error(Squishling::ConfigurationError, /timeout must be a positive number/)
       end
+    end
+
+    it "rejects an ignore_unsupported_params that isn't true or false" do
+      [nil, "yes", 1].each do |value|
+        expect { described_class.new(ignore_unsupported_params: value) }
+          .to raise_error(Squishling::ConfigurationError, /ignore_unsupported_params must be true or false/)
+      end
+    end
+
+    it "takes ignore_unsupported_params from a Hash" do
+      Squishling.configure do |config|
+        config.adapter = { type: :apple_fm, helper: stub_helper({ content: "{}" }), ignore_unsupported_params: true }
+      end
+
+      expect { Squishling.config.adapter.complete(adapter_request(params: { top_p: 0.5 })) }.not_to raise_error
+      expect(sent.keys).not_to include("top_p")
+    end
+
+    it "stays strict when ignore_unsupported_params is false" do
+      adapter = described_class.new(helper: stub_helper({ content: "{}" }), ignore_unsupported_params: false)
+
+      expect { adapter.complete(adapter_request(params: { top_p: 0.5 })) }
+        .to raise_error(Squishling::ConfigurationError, /top_p/)
     end
 
     it "rejects a helper or cache_dir that isn't a path" do

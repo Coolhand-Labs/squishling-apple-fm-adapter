@@ -36,11 +36,17 @@ module Squishling
 
       # timeout: seconds to wait for an answer before giving up (an LLMError). helper: the path of a prebuilt helper
       # to run instead of compiling the bundled one. cache_dir: where compiled helpers are kept (default
-      # ~/Library/Caches/squishling/apple_fm, or under $XDG_CACHE_HOME). Raises ConfigurationError for a bad option.
-      def initialize(timeout: 120, helper: nil, cache_dir: nil)
+      # ~/Library/Caches/squishling/apple_fm, or under $XDG_CACHE_HOME). ignore_unsupported_params: drop the params
+      # the system has no use for instead of raising, so a class written for a hosted model runs here unchanged
+      # (default false). Raises ConfigurationError for a bad option.
+      def initialize(timeout: 120, helper: nil, cache_dir: nil, ignore_unsupported_params: false)
         super()
         invalid(:timeout, "a positive number", timeout) unless timeout.is_a?(Numeric) && timeout.positive?
+        unless [true, false].include?(ignore_unsupported_params)
+          invalid(:ignore_unsupported_params, "true or false", ignore_unsupported_params)
+        end
         @timeout = timeout
+        @ignore_unsupported_params = ignore_unsupported_params
         @helper = Helper.new(path: path(:helper, helper), cache_dir: path(:cache_dir, cache_dir))
       end
 
@@ -72,14 +78,20 @@ module Squishling
       # The system has no reasoning mode and takes no provider-specific params.
       def generation_options(request)
         params = request.params
-        unsupported = params.keys - PORTABLE_PARAMS
-        unsupported -= [:thinking] unless params[:thinking]
-        unless unsupported.empty?
-          raise configuration_error(request, "the on-device model takes only the temperature and max_output_tokens " \
-                                             "params, not #{unsupported.join(', ')}")
-        end
+        reject_unsupported(request, params) unless @ignore_unsupported_params
 
         { "temperature" => params[:temperature], "max_tokens" => params[:max_output_tokens] }.compact
+      end
+
+      # Names only: a param's value never appears in an error.
+      def reject_unsupported(request, params)
+        unsupported = params.keys - PORTABLE_PARAMS
+        unsupported -= [:thinking] unless params[:thinking]
+        return if unsupported.empty?
+
+        raise configuration_error(request, "the on-device model takes only the temperature and max_output_tokens " \
+                                           "params, not #{unsupported.join(', ')} " \
+                                           "(set ignore_unsupported_params: true to drop them)")
       end
 
       # The helper counts tokens on macOS 26.4 and later; before that it sends none.

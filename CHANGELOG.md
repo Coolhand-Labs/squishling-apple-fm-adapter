@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reading its input (or never read it) hung forever on a request bigger than the pipe buffer (about 64 KB); the call now
   fails with an `LLMError` once `timeout:` has passed, as it does for a helper that never answers. The bundled helper
   was not affected. (#10)
+- `timeout:` also covers a custom `helper:` that writes its answer and then doesn't exit: the call used to wait for the
+  process forever after reading the answer, and now fails with an `LLMError` and kills it once `timeout:` has passed.
+  (#13)
 - A `temperature` that isn't a finite number of 0 or more, or a `max_output_tokens` that isn't a positive Integer
   (it must fit in 64 bits), now raises a `ConfigurationError` that names the param and never its value. Before, a
   `max_output_tokens` of 0 or less was reported as an output cutoff (and retried as invalid output), and a negative

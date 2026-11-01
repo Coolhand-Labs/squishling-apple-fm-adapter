@@ -293,6 +293,23 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
         expect_oversized_request_to_fail(script_helper("exit 3"), /no answer \(exit 3\)/, timeout: 5)
       end
 
+      it "times out, not hangs, when the helper answers and closes stdout but doesn't exit" do
+        helper = script_helper(<<~RUBY)
+          $stdin.read
+          print #{JSON.generate({ content: "{}" }).inspect}
+          $stdout.flush
+          $stdout.reopen(File::NULL, "w") # IO#close leaves fds 0-2 open, so the pipe would stay open
+          sleep 30
+        RUBY
+        adapter = described_class.new(helper:, timeout: 0.5)
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+        Timeout.timeout(10) do
+          expect { adapter.complete(adapter_request) }.to raise_error(Squishling::LLMError, /took longer than 0.5s/)
+        end
+        expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 3
+      end
+
       it "still raises LLMError when the helper exits on its own just before it is killed" do
         adapter = described_class.new(helper: stub_helper({ content: "{}" }, sleep_for: 1), timeout: 0.2)
         allow(Process).to receive(:kill).and_wrap_original do |original, *args|

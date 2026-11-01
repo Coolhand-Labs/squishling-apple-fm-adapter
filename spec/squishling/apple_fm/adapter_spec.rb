@@ -36,12 +36,12 @@ RSpec.describe Squishling::AppleFM::Adapter do
   end
 
   # The call ends in the expected LLMError well inside the 10s Timeout guard, so a regression fails instead of hanging.
-  def expect_oversized_request_to_fail(helper, message, timeout: 0.5)
+  def expect_call_to_fail(helper, message, timeout: 0.5, request: oversized_request)
     adapter = described_class.new(helper:, timeout:)
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
     Timeout.timeout(10) do
-      expect { adapter.complete(oversized_request) }.to raise_error(Squishling::LLMError, message)
+      expect { adapter.complete(request) }.to raise_error(Squishling::LLMError, message)
     end
     expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 3
   end
@@ -275,7 +275,7 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
       end
 
       it "times out, not hangs, when the helper never reads a request bigger than the pipe buffer" do
-        expect_oversized_request_to_fail(script_helper("sleep 30"), /took longer than 0.5s/)
+        expect_call_to_fail(script_helper("sleep 30"), /took longer than 0.5s/)
       end
 
       it "times out, not hangs, when the helper fills its stdout before it reads all of stdin" do
@@ -286,11 +286,23 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
           sleep 30
         RUBY
 
-        expect_oversized_request_to_fail(helper, /took longer than 0.5s/)
+        expect_call_to_fail(helper, /took longer than 0.5s/)
       end
 
       it "raises LLMError, not hangs, when the helper exits without reading a request bigger than the pipe buffer" do
-        expect_oversized_request_to_fail(script_helper("exit 3"), /no answer \(exit 3\)/, timeout: 5)
+        expect_call_to_fail(script_helper("exit 3"), /no answer \(exit 3\)/, timeout: 5)
+      end
+
+      it "times out, not hangs, when the helper answers and closes stdout but doesn't exit" do
+        helper = script_helper(<<~RUBY)
+          $stdin.read
+          print #{JSON.generate({ content: '{}' }).inspect}
+          $stdout.flush
+          $stdout.reopen(File::NULL, "w") # IO#close leaves fds 0-2 open, so the pipe would stay open
+          sleep 30
+        RUBY
+
+        expect_call_to_fail(helper, /took longer than 0.5s/, request: adapter_request)
       end
 
       it "still raises LLMError when the helper exits on its own just before it is killed" do

@@ -39,7 +39,7 @@ module Squishling
         Open3.popen2([command, command], err: File::NULL) do |stdin, stdout, wait|
           reader = quiet_thread { stdout.read }
           writer = quiet_thread { send_request(stdin, payload) }
-          timed_out = !finished_within?([writer, reader], timeout)
+          timed_out = !finished_within?([writer, reader, wait], timeout)
           kill(wait.pid) if timed_out
           answer(timed_out ? nil : reader.value, wait.value, timeout)
         end
@@ -59,7 +59,8 @@ module Squishling
         end
       end
 
-      # True when every thread finished within timeout seconds in all; the write and the read share that one budget.
+      # True when every thread finished within timeout seconds in all; the write, the read, and the helper's exit share
+      # that one budget, so a helper that answers and then doesn't exit can't hang the call either.
       def finished_within?(threads, timeout)
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
         threads.all? do |thread|

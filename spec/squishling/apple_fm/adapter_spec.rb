@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "timeout"
 require "tmpdir"
 
 RSpec.describe Squishling::AppleFM::Adapter do
@@ -12,16 +13,36 @@ RSpec.describe Squishling::AppleFM::Adapter do
 
   # An executable that records what it is sent and prints a canned answer, standing in for the compiled Swift helper.
   def stub_helper(answer = nil, raw: nil, status: 0, sleep_for: 0, name: "helper")
-    path = File.join(dir, name)
-    File.write(path, <<~RUBY)
-      #!#{RbConfig.ruby}
+    script_helper(<<~RUBY, name:)
       File.write(#{record.inspect}, $stdin.read)
       sleep #{sleep_for}
       print #{(raw || JSON.generate(answer)).inspect}
       exit #{status}
     RUBY
+  end
+
+  # An executable Ruby script with the given body.
+  def script_helper(body, name: "helper")
+    path = File.join(dir, name)
+    File.write(path, "#!#{RbConfig.ruby}\n#{body}")
     FileUtils.chmod(0o755, path)
     path
+  end
+
+  # Both the request and what the helper writes are far bigger than a pipe buffer (about 64 KB).
+  def oversized_request
+    adapter_request(messages: [{ role: :user, content: "a" * 300_000 }])
+  end
+
+  # The call ends in the expected LLMError well inside the 10s Timeout guard, so a regression fails instead of hanging.
+  def expect_oversized_request_to_fail(helper, message, timeout: 0.5)
+    adapter = described_class.new(helper:, timeout:)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    Timeout.timeout(10) do
+      expect { adapter.complete(oversized_request) }.to raise_error(Squishling::LLMError, message)
+    end
+    expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 3
   end
 
   def sent
@@ -217,6 +238,25 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
 
         expect { adapter.complete(adapter_request) }.to raise_error(Squishling::LLMError, /took longer than 0.3s/)
         expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 3
+      end
+
+      it "times out, not hangs, when the helper never reads a request bigger than the pipe buffer" do
+        expect_oversized_request_to_fail(script_helper("sleep 30"), /took longer than 0.5s/)
+      end
+
+      it "times out, not hangs, when the helper fills its stdout before it reads all of stdin" do
+        helper = script_helper(<<~RUBY)
+          $stdout.write("x" * 300_000)
+          $stdout.flush
+          $stdin.read
+          sleep 30
+        RUBY
+
+        expect_oversized_request_to_fail(helper, /took longer than 0.5s/)
+      end
+
+      it "raises LLMError, not hangs, when the helper exits without reading a request bigger than the pipe buffer" do
+        expect_oversized_request_to_fail(script_helper("exit 3"), /no answer \(exit 3\)/, timeout: 5)
       end
 
       it "still raises LLMError when the helper exits on its own just before it is killed" do

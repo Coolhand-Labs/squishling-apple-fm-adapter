@@ -296,7 +296,7 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
       it "times out, not hangs, when the helper answers and closes stdout but doesn't exit" do
         helper = script_helper(<<~RUBY)
           $stdin.read
-          print #{JSON.generate({ content: "{}" }).inspect}
+          print #{JSON.generate({ content: '{}' }).inspect}
           $stdout.flush
           $stdout.reopen(File::NULL, "w") # IO#close leaves fds 0-2 open, so the pipe would stay open
           sleep 30

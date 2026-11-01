@@ -102,7 +102,9 @@ module Squishling
 
       def path(name, value)
         return nil if value.nil?
-        return value.to_s if value.is_a?(String) || value.respond_to?(:to_path)
+
+        text = value.respond_to?(:to_path) ? value.to_path : value
+        return text if text.is_a?(String) && !text.strip.empty?
 
         invalid(name, "a path", value)
       end

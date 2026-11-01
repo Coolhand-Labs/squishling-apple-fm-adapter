@@ -33,7 +33,9 @@ module Squishling
       # Sends request (a Hash) and returns the helper's answer (a Hash). Raises Unavailable or Failed.
       def call(request, timeout:)
         command = executable
-        Open3.popen2(command, err: File::NULL) do |stdin, stdout, wait|
+        # [command, command] is the program and its argv[0], run as given: a bare String with a space or a shell
+        # metacharacter in it (a home directory like "/Users/Mary Ann") would be split or handed to /bin/sh.
+        Open3.popen2([command, command], err: File::NULL) do |stdin, stdout, wait|
           send_request(stdin, request)
           reader = Thread.new { stdout.read }
           timed_out = reader.join(timeout).nil?
@@ -95,9 +97,10 @@ module Squishling
       end
 
       # Compiled to a temporary name and renamed into place, under a file lock so that concurrent processes build
-      # once and none runs a half-written binary.
+      # once and none runs a half-written binary. The directories it creates are private to the user: the binary's
+      # path is predictable (the source's digest), so nobody else may be able to put a file there.
       def compile(target)
-        FileUtils.mkdir_p(File.dirname(target))
+        FileUtils.mkdir_p(File.dirname(target), mode: 0o700)
         File.open("#{target}.lock", File::RDWR | File::CREAT) do |lock|
           lock.flock(File::LOCK_EX)
           next if File.executable?(target)

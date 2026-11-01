@@ -261,6 +261,15 @@ findings.
      publisher for `squishling-apple_fm` (repository
      `Coolhand-Labs/squishling-apple-fm-adapter`, workflow `publish.yml`,
      environment `rubygems-publish`) and the matching GitHub environment.
+     Also check that the first push can succeed: RubyGems can require a
+     workflow that creates a new gem to pass the owning account's ID as an
+     `owner` parameter in the OIDC token exchange, and the pinned
+     `rubygems/release-gem` may have no such input (`action.yml` at the pinned
+     SHA). If so, tell the user their options (publish the first version by hand
+     and add a normal trusted publisher afterwards, or change the workflow)
+     before they run `/finish-release`.
+   - The next step: once the user has reviewed the PR, `/finish-release` merges
+     it, tags, and publishes the release notes.
 
 ## Safety
 
@@ -275,8 +284,8 @@ findings.
   themselves.
 - Never create or push a git tag, never run `rake release` or `gem push`,
   and never merge the Phase 5 PR yourself. Tagging and publishing are the
-  user's action once they've reviewed and merged this skill's PR, not
-  something this skill does.
+  user's action once they've reviewed this skill's PR (they run
+  `/finish-release`, or do it by hand), not something this skill does.
 
 ## Rationalizations to resist
 

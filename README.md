@@ -50,10 +50,11 @@ config.adapter = { type: :apple_fm, timeout: 60 }
 | `timeout` | `120` | Seconds to wait for an answer before the call fails with an `LLMError`. |
 | `helper` | compiled from the bundled source | The path of a prebuilt helper to run instead. |
 | `cache_dir` | `~/Library/Caches/squishling/apple_fm` (or under `$XDG_CACHE_HOME`) | Where compiled helpers are kept. |
+| `ignore_unsupported_params` | `false` | Drop params the on-device model has no equivalent for instead of raising ([details](docs/how-it-works.md#ignoring-unsupported-params)). |
 
 The system has one model, so `model:` and `provider:` are ignored. `temperature` and `max_output_tokens` are sent;
-a temperature that isn't a finite number of 0 or more, a `max_output_tokens` that isn't a positive Integer, or any
-other param raises `Squishling::ConfigurationError`.
+a temperature that isn't a finite number of 0 or more, or a `max_output_tokens` that isn't a positive Integer, raises
+`Squishling::ConfigurationError`, and so does any other param, unless `ignore_unsupported_params: true` drops it.
 
 ## Know the limits
 

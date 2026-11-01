@@ -238,6 +238,15 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
       end
     end
 
+    it "runs a helper whose path has spaces and shell metacharacters, without involving a shell" do
+      directory = File.join(dir, "Mary Ann; it's $(false) & co")
+      FileUtils.mkdir_p(directory)
+      path = stub_helper({ content: '{"label":"ok"}' }, name: File.join("Mary Ann; it's $(false) & co", "helper"))
+      adapter = described_class.new(helper: path)
+
+      expect(adapter.complete(adapter_request).content).to eq('{"label":"ok"}')
+    end
+
     it "can be called from several threads at once" do
       results = Array.new(4) { Thread.new { adapter.complete(adapter_request).content } }.map(&:value)
 
@@ -258,6 +267,19 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
       expect do
         described_class.new(cache_dir: [])
       end.to raise_error(Squishling::ConfigurationError, /cache_dir must be a path/)
+    end
+
+    it "rejects a blank helper or cache_dir, which would otherwise build under the filesystem root" do
+      ["", "  "].each do |blank|
+        expect { described_class.new(helper: blank) }
+          .to raise_error(Squishling::ConfigurationError, /helper must be a path/)
+        expect { described_class.new(cache_dir: blank) }
+          .to raise_error(Squishling::ConfigurationError, /cache_dir must be a path/)
+      end
+    end
+
+    it "accepts a Pathname for helper and cache_dir" do
+      expect { described_class.new(helper: Pathname(dir), cache_dir: Pathname(dir)) }.not_to raise_error
     end
 
     it "rejects options it doesn't have when built from a Hash" do
@@ -300,6 +322,14 @@ usage: { input_tokens: "7", output_tokens: 3, x: 1 } }))
       names = Dir.glob(File.join(cache, "*", "*")).map { |path| File.basename(path) }
       expect(names).to contain_exactly("helper", "helper.lock")
       expect(Dir.children(cache).first).to match(/\A\h{16}\z/)
+    end
+
+    it "creates the cache directories private to the user" do
+      fake_swiftc
+      described_class.new(cache_dir: cache).complete(adapter_request)
+
+      private_dirs = [cache, *Dir.glob(File.join(cache, "*"))].select { |path| File.directory?(path) }
+      expect(private_dirs.map { |path| File.stat(path).mode & 0o777 }).to all(eq(0o700))
     end
 
     it "raises ConfigurationError when swiftc fails, and caches nothing" do

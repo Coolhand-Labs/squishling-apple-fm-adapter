@@ -14,14 +14,17 @@ small Swift program, `lib/squishling/apple_fm/helper.swift`.
   `~/Library/Caches/squishling/apple_fm/<digest of the source>/helper` (under `$XDG_CACHE_HOME` when that is set, or in
   `cache_dir:`). A new gem version with a changed source builds a new binary; old ones stay until you delete the
   directory. The build takes a few seconds, runs under a file lock so concurrent processes build once, and is renamed into
-  place so nobody runs a half-written file.
+  place so nobody runs a half-written file. The cache directories are created readable only by you (mode 0700), because
+  the binary's path is predictable; if you point `cache_dir:` at a directory that others can write to, they could put a
+  binary there, so keep it private.
 - **One process per request.** Ruby writes one JSON request to its stdin and reads one JSON line from its stdout, so there
   is no server, no shared state, and Squishling's concurrent samples each get their own process (about 0.8 seconds per
   call once built, mostly model time).
 - **Private protocol.** The request is `{ instructions, messages, schema, temperature?, max_tokens? }`; the answer is
   `{ content, usage?, finish_reason? }` or `{ error: <code> }`. Apple's own error messages never leave the helper, only a code.
 - **Token counts** (`usage`) come from FoundationModels on macOS 26.4 and later; on 26.0 to 26.3 there are none.
-- `helper:` runs a prebuilt binary instead, for example one built in CI or by your own tooling.
+- `helper:` runs a prebuilt binary instead, for example one built in CI or by your own tooling. It is run as given, with
+  no shell, so a path with spaces or other special characters works.
 
 ## Schemas
 

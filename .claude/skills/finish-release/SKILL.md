@@ -121,6 +121,7 @@ Never `rake release` or `gem push`; CI publishes.
    `---`-separated emoji sections: `## ⚠️ Upgrading from <previous>` first when
    anything breaks or changes behavior (omit on the first release), one per
    feature, `## 🔒 Security` (or `Security and Fixes`), `## ⚠️ Worth Knowing`,
+   `## 🙏 Thanks` (only when the changelog has a `### Thanks`; see step 3),
    `## 🔗 Resources` (Documentation, Changelog, RubyGems). Keep only sections
    with content. The install snippet is
    `gem "squishling-apple_fm", group: :development` next to
@@ -136,16 +137,34 @@ Never `rake release` or `gem push`; CI publishes.
    behavior-affecting. Use full
    `https://github.com/Coolhand-Labs/squishling-apple-fm-adapter/...` URLs (blob
    links to `main` for docs), not relative links.
-3. **Verify every claim and every issue link before publishing.** For Worth
+3. **Credit outside contributors.** The notes are written fresh, not copied from
+   the changelog, so carry the credit over from its `thanks @login` entries and
+   `### Thanks` section: put `thanks @login` next to the PR link on that
+   contributor's item (`([#11](<url>), thanks @login)`), and give the notes a
+   `## 🙏 Thanks` section (after Worth Knowing, before Resources) with the same
+   welcome shout-out for each first-time contributor. Then check it against the
+   source rather than the changelog alone: for every PR number in the
+   `## [X.Y.Z]` section, `gh pr view <n> --json author`; an author who is neither
+   a bot nor a team member (`gh api repos/{owner}/{repo}/pulls/<n> --jq
+   .author_association` is not `MEMBER`, `OWNER` or `COLLABORATOR`) must appear
+   in the notes with `thanks @login`, and a first-time one (no commit on `main`
+   before the previous tag:
+   `gh api "repos/{owner}/{repo}/commits?author=<login>&until=<previous-tag-date>"`
+   is `[]`; on a first release, no earlier merged PR) must be welcomed as such.
+   If the changelog section is missing that
+   credit, stop and tell the user before publishing, since the release notes are
+   what the contributor sees; don't edit the tagged changelog silently. With no
+   outside contributors, there is nothing to add.
+4. **Verify every claim and every issue link before publishing.** For Worth
    Knowing, take the issues from the previous release (on a first release, the
    open issues the changelog and PR body point at, and the limits the README
    lists) and run `gh issue view <n> --json state` on each: drop closed ones, and
    re-read any issue the release touches (partly fixed counts as still open, with
    a parenthetical saying what was fixed). Don't describe a behavior you haven't
    read in the code or the PR.
-4. Write the notes outside the repo, e.g. `$TMPDIR/apple-fm-release-notes-vX.Y.Z.md`
+5. Write the notes outside the repo, e.g. `$TMPDIR/apple-fm-release-notes-vX.Y.Z.md`
    (never commit the file).
-5. `gh release create vX.Y.Z --verify-tag --title "vX.Y.Z" --notes-file
+6. `gh release create vX.Y.Z --verify-tag --title "vX.Y.Z" --notes-file
    <that file> --latest`. Not a draft and not a prerelease. Confirm with
    `gh release view vX.Y.Z --json name,tagName,isDraft,url`.
 
@@ -154,6 +173,8 @@ Never `rake release` or `gem push`; CI publishes.
 State, in the final message:
 - The merged PR number and its merge commit, and the tag pointing at it.
 - The release URL.
+- Outside and first-time contributors credited in the release notes, by `@login`
+  and PR (or that there were none), and anything missing that stopped Phase 4.
 - The Publish workflow run (`gh run list --workflow publish.yml --limit 1`) and
   whether the build job passed and the publish job is waiting for the
   `rubygems-publish` approval (or why it failed). Do not approve, re-run, or

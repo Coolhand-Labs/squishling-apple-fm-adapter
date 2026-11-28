@@ -56,6 +56,9 @@ The system has one model, so `model:` and `provider:` are ignored. `temperature`
 a temperature that isn't a finite number of 0 or more, or a `max_output_tokens` that isn't a positive Integer, raises
 `Squishling::ConfigurationError`, and so does any other param, unless `ignore_unsupported_params: true` drops it.
 
+Squishling's prompt-caching setting (`cache:`) is ignored: nothing here goes over a network, so there is no
+provider cache to write or read, whatever `cache:` is set to.
+
 ## Know the limits
 
 This is a small on-device model, for **developing** the shape of a call, not for judging its quality:
